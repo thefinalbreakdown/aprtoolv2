@@ -1,0 +1,1 @@
+v9 - Manual selection of funding rate format (percent or decimal)
