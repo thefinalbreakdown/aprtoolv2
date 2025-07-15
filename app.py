@@ -47,8 +47,9 @@ start_time = end_time - pd.Timedelta(days=timeframe_days)
 df_filtered = df[df[time_col] >= start_time].copy()
 
 # Calculate APR
-df_filtered["Funding Rate (%)"] = pd.to_numeric(df_filtered[funding_col], errors="coerce") * funding_multiplier
-df_filtered = df_filtered.dropna(subset=["Funding Rate (%)"])
+df_filtered["Funding Rate (%)"] = pd.to_numeric(df_filtered[funding_col], errors="coerce")
+df_filtered.dropna(subset=["Funding Rate (%)"], inplace=True)
+df_filtered["Funding Rate (%)"] *= funding_multiplier
 df_filtered["APR (%)"] = df_filtered["Funding Rate (%)"] * (365 * 24 / interval_hours)
 
 # Summary
