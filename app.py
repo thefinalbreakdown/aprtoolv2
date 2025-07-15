@@ -1,101 +1,117 @@
-
 import streamlit as st
 import pandas as pd
-import numpy as np
-import plotly.express as px
-from io import BytesIO
+import io
 from datetime import datetime, timedelta
 
-st.set_page_config(layout="wide")
-st.title("💹 Funding Rate APR Tool")
+st.title("📈 Isolated Funding Rate APR Viewer")
 
-uploaded_file = st.file_uploader("Upload a CSV or Excel funding file", type=["csv", "xlsx"])
-if not uploaded_file:
-    st.stop()
+st.markdown("""
+Upload a single funding file (Bybit, WOOX, Hyperliquid, or compatible).
 
-# Load the file
-if uploaded_file.name.endswith(".csv"):
-    df = pd.read_csv(uploaded_file)
-else:
-    df = pd.read_excel(uploaded_file)
+- Select timestamp and funding rate columns
+- Set funding interval (e.g., 4 hours, 1 hour)
+- Choose timeframe (30, 14, 7, 3, 1 days)
+- Manually confirm funding rate format
+- View accurate vs legacy APR calculations
+- Export enriched CSV
+""")
 
-# Show preview
-st.subheader("🔍 File Preview")
-st.write(df.head())
-st.text("Detected Columns: " + ", ".join([str(c) for c in df.columns]))
+uploaded_file = st.file_uploader("Upload funding file (.csv or .xlsx)", type=["csv", "xlsx"])
 
-# Let user select columns
-st.subheader("Select Columns")
-time_col = st.selectbox("Select Timestamp Column", df.columns)
-funding_col = st.selectbox("Select Funding Rate Column", df.columns)
+if uploaded_file:
+    exchange = st.selectbox("Select Exchange", ["Bybit", "WOOX", "Other"])
 
-# Let user define funding rate format
-format_option = st.selectbox("Funding Rate Format", ["Percent (e.g., 0.01%)", "Decimal (e.g., 0.0001)"])
-funding_multiplier = 1 if "Percent" in format_option else 100
-
-# Parse time
-df[time_col] = pd.to_datetime(df[time_col])
-df = df.sort_values(by=time_col).reset_index(drop=True)
-
-# Set funding interval
-interval_hours = st.number_input("Funding Interval (Hours)", min_value=1, max_value=24, value=4)
-
-# Let user input custom time range
-timeframe_days = st.number_input("Select APR Timeframe (1–90 Days)", min_value=1, max_value=90, value=30)
-end_time = df[time_col].max()
-start_time = end_time - pd.Timedelta(days=timeframe_days)
-df_filtered = df[df[time_col] >= start_time].copy()
-
-# Calculate APR
-df_filtered["Funding Rate (%)"] = pd.to_numeric(df_filtered[funding_col], errors="coerce")
-df_filtered.dropna(subset=["Funding Rate (%)"], inplace=True)
-df_filtered["Funding Rate (%)"] *= funding_multiplier
-df_filtered["APR (%)"] = df_filtered["Funding Rate (%)"] * (365 * 24 / interval_hours)
-
-# Summary
-st.markdown("### 📌 APR Summary")
-cumulative_return = (df_filtered["APR (%)"] / (365 * 24 / interval_hours) / 100 + 1).prod()
-website_apr = (cumulative_return ** (365 / timeframe_days) - 1) * 100 if len(df_filtered) else 0
-
-col1, col2 = st.columns(2)
-col1.metric("📈 Website-Style APR (preferred)", f"{website_apr:.2f}%")
-col2.metric("🧮 Average of Interval APRs", f"{df_filtered['APR (%)'].mean():.2f}%" if len(df_filtered) else "N/A")
-
-# APR Over Time chart
-st.subheader("📈 APR (%) Over Time")
-fig_apr = px.line(df_filtered, x=time_col, y="APR (%)", title="APR Over Time")
-st.plotly_chart(fig_apr, use_container_width=True)
-
-# 🔲 Square indicator synced to timeframe
-st.subheader("🟦 APR Threshold Squares")
-def apr_to_color(apr):
-    if apr > 100:
-        return "green"
-    elif apr < -100:
-        return "red"
-    elif abs(apr) < 1:
-        return "orange"
+    # Read file
+    if uploaded_file.name.endswith(".csv"):
+        df = pd.read_csv(uploaded_file)
     else:
-        return "blue"
+        df = pd.read_excel(uploaded_file)
 
-colors = df_filtered["APR (%)"].apply(apr_to_color).tolist()
-timestamps = df_filtered[time_col].tolist()
+    st.write("Raw Data Preview:", df.head())
+    st.write("Columns detected in file:", list(df.columns))
 
-html_blocks = []
-for i, color in enumerate(colors):
-    if i > 0 and timestamps[i].date() != timestamps[i - 1].date():
-        html_blocks.append("<span style='display:inline-block;width:6px;height:10px;margin:1px;background:transparent;'></span>")
-    html_blocks.append(f"<span style='display:inline-block;width:10px;height:10px;margin:1px;background:{color};border-radius:2px;'></span>")
+    # Manual column selection
+    time_col = st.selectbox("Select Timestamp Column", options=df.columns)
+    funding_col = st.selectbox("Select Funding Rate Column", options=df.columns)
 
-square_html = ''.join(html_blocks)
-st.markdown(square_html, unsafe_allow_html=True)
+    # Convert timestamp
+    df[time_col] = pd.to_datetime(df[time_col], errors='coerce')
+    df = df.dropna(subset=[time_col])
+    df = df.sort_values(by=time_col)
 
-# Raw Funding Chart
-st.subheader("📊 APR Per Funding Interval")
-st.line_chart(df_filtered.set_index(time_col)['APR (%)'])
+    # Detect or override funding interval
+    if len(df) > 1:
+        detected_interval = (df[time_col].iloc[1] - df[time_col].iloc[0]).total_seconds() / 3600
+    else:
+        detected_interval = 4
+    interval_hours = st.number_input("Funding Interval (Hours)", value=round(detected_interval), step=1)
 
-st.subheader("💹 Funding Rate (%) Over Time")
-st.line_chart(df_filtered.set_index(time_col)['Funding Rate (%)'])
+    # Ask user for funding rate format
+    funding_format = st.radio("Funding Rate Format", ["Decimal (e.g. 0.0001)", "Percent (e.g. 0.01%)"])
 
-# Export
-st.download_button("📥 Download CSV with APR", df_filtered.to_csv(index=False).encode(), "output_with_apr.csv", "text/csv")
+    # Clean and parse funding rate column
+    df[funding_col] = df[funding_col].astype(str).str.replace('%', '', regex=False)
+    df[funding_col] = pd.to_numeric(df[funding_col], errors='coerce')
+    df = df.dropna(subset=[funding_col])
+
+    if funding_format == "Percent (e.g. 0.01%)":
+        df[funding_col] = df[funding_col] / 100
+
+    # Calculate APR
+    df['Funding (%)'] = df[funding_col] * 100
+    df['APR (%)'] = df[funding_col] * (365 * 24 / interval_hours) * 100
+
+    # Select timeframe
+    days = st.selectbox("Select APR Timeframe", [30, 14, 7, 3, 1])
+    cutoff_time = df[time_col].max() - timedelta(days=days)
+    df_filtered = df[df[time_col] >= cutoff_time]
+
+    # Method 1: Website-style APR (preferred)
+    avg_funding_rate = df_filtered[funding_col].mean()
+    annualized_apr_clean = avg_funding_rate * 365 * 24 * 100
+
+    # Method 2: Legacy per-row APR average
+    average_apr_legacy = df_filtered["APR (%)"].mean()
+
+    st.subheader(f"📌 APR Summary for Last {days} Days")
+    st.metric(label="📈 Website-Style APR (preferred)", value=f"{annualized_apr_clean:.2f}%", help="Based on average funding rate × 8760 × 100")
+    st.metric(label="🧮 Average of Interval APRs", value=f"{average_apr_legacy:.2f}%", help="Average of each row's APR (legacy method)")
+
+    # Charts
+    st.subheader("📈 APR (%) Over Time")
+    st.line_chart(df_filtered.set_index(time_col)['APR (%)'])
+
+    # 🔲 Square indicator chart
+    st.subheader("🟦 APR Threshold Squares")
+    def apr_to_color(apr):
+        if apr > 100:
+            return "green"
+        elif apr < -100:
+            return "red"
+        elif apr < 1:
+            return "orange"
+        else:
+            return "blue"
+    colors = df_filtered['APR (%)'].apply(apr_to_color)
+    square_html = "".join([
+        f"<span style='display:inline-block;width:10px;height:10px;margin:1px;background:{c};border-radius:2px;'></span>"
+        for c in colors
+    ])
+    st.markdown(square_html, unsafe_allow_html=True)
+
+
+    st.subheader("💹 Funding Rate (%) Over Time")
+    st.line_chart(df_filtered.set_index(time_col)['Funding (%)'])
+
+    st.subheader("📊 APR Per Funding Interval")
+    st.bar_chart(df_filtered.set_index(time_col)['APR (%)'])
+
+    # CSV download
+    output = io.BytesIO()
+    df.to_csv(output, index=False)
+    st.download_button(
+        label="📤 Download CSV with APR",
+        data=output.getvalue(),
+        file_name=f"{exchange.lower()}_with_apr.csv",
+        mime="text/csv"
+    )
