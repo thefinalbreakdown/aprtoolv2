@@ -62,7 +62,7 @@ if uploaded_file:
     df['APR (%)'] = df[funding_col] * (365 * 24 / interval_hours) * 100
 
     # Select timeframe
-    days = st.selectbox("Select APR Timeframe", [30, 14, 7, 3, 1])
+    days = st.number_input("Select APR Timeframe (1-90 days)", min_value=1, max_value=90, value=30, step=1)
     cutoff_time = df[time_col].max() - timedelta(days=days)
     df_filtered = df[df[time_col] >= cutoff_time]
 
