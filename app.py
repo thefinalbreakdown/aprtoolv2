@@ -3,9 +3,9 @@ import pandas as pd
 import io
 from datetime import datetime, timedelta
 
-    st.title("📈 Isolated Funding Rate APR Viewer")
+st.title("📈 Isolated Funding Rate APR Viewer")
 
-    st.markdown("""
+st.markdown("""
 Upload a single funding file (Bybit, WOOX, Hyperliquid, or compatible).
 
 - Select timestamp and funding rate columns
@@ -92,25 +92,22 @@ if uploaded_file:
             return "orange"
         else:
             return "blue"
+    
     colors = df_filtered['APR (%)'].apply(apr_to_color)
-    square_html = "".join([
-        f"<span style='display:inline-block;width:10px;height:10px;margin:1px;background:{c};border-radius:2px;'></span>"
-        for c in colors
-    ])
+    dates = df_filtered[time_col].dt.date.tolist()
+    square_html = ""
+    last_day = None
+    for color, day in zip(colors, dates):
+        if last_day is not None and day != last_day:
+            square_html += "<span style='display:inline-block;width:4px;height:10px;margin:1px;background:none;'>-</span>"
+        square_html += f"<span style='display:inline-block;width:10px;height:10px;margin:1px;background:{color};border-radius:2px;'></span>"
+        last_day = day
     st.markdown(square_html, unsafe_allow_html=True)
+
 
 
     st.subheader("💹 Funding Rate (%) Over Time")
     st.line_chart(df_filtered.set_index(time_col)['Funding (%)'])
-
-
-
-    st.download_button(
-    label="📥 Export Data as CSV",
-    data=csv,
-    file_name=export_name,
-    mime="text/csv"
-)
 
     st.subheader("📊 APR Per Funding Interval")
     st.bar_chart(df_filtered.set_index(time_col)['APR (%)'])
@@ -118,18 +115,9 @@ if uploaded_file:
     # CSV download
     output = io.BytesIO()
     df.to_csv(output, index=False)
-    ,
+    st.download_button(
+        label="📤 Download CSV with APR",
+        data=output.getvalue(),
         file_name=f"{exchange.lower()}_with_apr.csv",
         mime="text/csv"
-
-html_blocks = []
-for i in range(len(df_filtered)):
-    if i > 0 and df_filtered[time_col].iloc[i].date() != df_filtered[time_col].iloc[i - 1].date():
-        html_blocks.append("<span style='display:inline-block;width:6px;height:10px;margin:1px;background:transparent;'></span>")
-    color = apr_to_color(df_filtered["APR (%)"].iloc[i])
-    timestamp = df_filtered[time_col].iloc[i]
-    apr_value = df_filtered["APR (%)"].iloc[i]
-    html_blocks.append(f"<span title='{timestamp}: {apr_value:.2f}%' style='display:inline-block;width:10px;height:10px;margin:1px;background:{color};border-radius:2px;'></span>")
-
-square_html = "".join(html_blocks)
-)
+    )
