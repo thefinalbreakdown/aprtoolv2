@@ -103,15 +103,22 @@ if uploaded_file:
     st.subheader("💹 Funding Rate (%) Over Time")
     st.line_chart(df_filtered.set_index(time_col)['Funding (%)'])
 
-    st.subheader("📊 APR Per Funding Interval")
+    
+
+st.download_button(
+    label="📥 Export Data as CSV",
+    data=csv,
+    file_name=export_name,
+    mime="text/csv"
+)
+
+st.subheader("📊 APR Per Funding Interval")
     st.bar_chart(df_filtered.set_index(time_col)['APR (%)'])
 
     # CSV download
     output = io.BytesIO()
     df.to_csv(output, index=False)
-    st.download_button(
-        label="📤 Download CSV with APR",
-        data=output.getvalue(),
+    ,
         file_name=f"{exchange.lower()}_with_apr.csv",
         mime="text/csv"
     
