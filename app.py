@@ -68,7 +68,7 @@ if uploaded_file:
 
     # Method 1: Website-style APR (preferred)
     avg_funding_rate = df_filtered[funding_col].mean()
-    annualized_apr_clean = avg_funding_rate * 365 * 24 * 100
+    annualized_apr_clean = df_filtered[funding_col].sum() * (365 * 24 / interval_hours) * 100
 
     # Method 2: Legacy per-row APR average
     average_apr_legacy = df_filtered["APR (%)"].mean()
