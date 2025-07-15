@@ -3,9 +3,9 @@ import pandas as pd
 import io
 from datetime import datetime, timedelta
 
-st.title("📈 Isolated Funding Rate APR Viewer")
+    st.title("📈 Isolated Funding Rate APR Viewer")
 
-st.markdown("""
+    st.markdown("""
 Upload a single funding file (Bybit, WOOX, Hyperliquid, or compatible).
 
 - Select timestamp and funding rate columns
@@ -103,16 +103,16 @@ if uploaded_file:
     st.subheader("💹 Funding Rate (%) Over Time")
     st.line_chart(df_filtered.set_index(time_col)['Funding (%)'])
 
-    
 
-st.download_button(
+
+    st.download_button(
     label="📥 Export Data as CSV",
     data=csv,
     file_name=export_name,
     mime="text/csv"
 )
 
-st.subheader("📊 APR Per Funding Interval")
+    st.subheader("📊 APR Per Funding Interval")
     st.bar_chart(df_filtered.set_index(time_col)['APR (%)'])
 
     # CSV download
@@ -121,7 +121,7 @@ st.subheader("📊 APR Per Funding Interval")
     ,
         file_name=f"{exchange.lower()}_with_apr.csv",
         mime="text/csv"
-    
+
 html_blocks = []
 for i in range(len(df_filtered)):
     if i > 0 and df_filtered[time_col].iloc[i].date() != df_filtered[time_col].iloc[i - 1].date():
