@@ -1,99 +1,138 @@
+
 import streamlit as st
 import pandas as pd
-import numpy as np
-from datetime import datetime
-import plotly.express as px
-import base64
+import io
+from datetime import datetime, timedelta
 
-st.set_page_config(page_title="APR Visualizer", layout="wide")
+st.title("📈 Isolated Funding Rate APR Viewer (v10.3)")
 
-st.title("📈 Crypto Funding Rate APR Analyzer v10.3")
+st.markdown("""
+Upload a single funding file (Bybit, WOOX, Hyperliquid, or compatible).
 
-uploaded_file = st.file_uploader("Upload a CSV or Excel file", type=["csv", "xlsx"])
+- Select timestamp and funding rate columns
+- Set funding interval (e.g., 4 hours, 1 hour)
+- Choose timeframe (1 to 90 days)
+- Manually confirm funding rate format
+- View accurate vs legacy APR calculations
+- Export enriched CSV and APR logic
+""")
+
+uploaded_file = st.file_uploader("Upload funding file (.csv or .xlsx)", type=["csv", "xlsx"])
 
 if uploaded_file:
-    # Load data
+    exchange = st.selectbox("Select Exchange", ["Bybit", "WOOX", "Other"])
+
+    # Read file
     if uploaded_file.name.endswith(".csv"):
         df = pd.read_csv(uploaded_file)
     else:
         df = pd.read_excel(uploaded_file)
 
-    st.subheader("📄 Raw Preview")
-    st.dataframe(df.head(10))
+    st.write("📄 Raw Data Preview:", df.head())
+    st.write("📌 Columns detected:", list(df.columns))
 
-    # Select relevant columns
-    time_col = st.selectbox("Select time column", df.columns, index=0)
-    fund_col = st.selectbox("Select funding rate column", df.columns, index=1)
-    interval_hours = st.number_input("Funding interval (hours)", min_value=1, max_value=24, value=4)
-    num_days = st.number_input("Custom timeframe (days)", min_value=1, max_value=90, value=30)
+    time_col = st.selectbox("🕒 Select Timestamp Column", options=df.columns)
+    funding_col = st.selectbox("💸 Select Funding Rate Column", options=df.columns)
 
-    df[time_col] = pd.to_datetime(df[time_col])
-    df = df.sort_values(by=time_col, ascending=False)
+    df[time_col] = pd.to_datetime(df[time_col], errors='coerce')
+    df = df.dropna(subset=[time_col])
+    df = df.sort_values(by=time_col)
 
-    # Convert funding
-    df['Funding Rate (%)'] = pd.to_numeric(df[fund_col].astype(str).str.replace('%','').str.strip(), errors='coerce')
-    df.dropna(subset=['Funding Rate (%)'], inplace=True)
-    df['Funding Rate (decimal)'] = df['Funding Rate (%)'] / 100
-
-    rows_expected = int((num_days * 24) / interval_hours)
-    df_selected = df.head(rows_expected)
-    actual_rows = len(df_selected)
-
-    # APR Calculations
-    annual_factor = 365 * 24 / interval_hours
-    df_selected['APR Interval (%)'] = df_selected['Funding Rate (decimal)'] * annual_factor * 100
-    website_style_apr = df_selected['Funding Rate (decimal)'].sum() * annual_factor * 100
-    avg_interval_apr = df_selected['APR Interval (%)'].mean()
-
-    # Show results
-    st.subheader(f"📊 Results for Last {num_days} Days")
-    st.markdown(f"**📈 Website-Style APR (preferred):** `{website_style_apr:.2f}%`")
-    st.markdown(f"**🧮 Average of Interval APRs:** `{avg_interval_apr:.2f}%`")
-
-    # Data completeness check
-    if actual_rows < rows_expected:
-        st.warning(f"⚠️ Only {actual_rows} of {rows_expected} expected rows found. Results may be incomplete.")
+    if len(df) > 1:
+        detected_interval = (df[time_col].iloc[1] - df[time_col].iloc[0]).total_seconds() / 3600
     else:
-        st.success(f"✅ Using {actual_rows} funding intervals for {num_days} days @ {interval_hours}h")
+        detected_interval = 4
+    interval_hours = st.number_input("⏱ Funding Interval (Hours)", value=round(detected_interval), step=1)
 
-    # Chart: APR Over Time
+    funding_format = st.radio("💱 Funding Rate Format", ["Decimal (e.g. 0.0001)", "Percent (e.g. 0.01%)"])
+
+    df[funding_col] = df[funding_col].astype(str).str.replace('%', '', regex=False)
+    df[funding_col] = pd.to_numeric(df[funding_col], errors='coerce')
+    df = df.dropna(subset=[funding_col])
+
+    if funding_format == "Percent (e.g. 0.01%)":
+        df[funding_col] = df[funding_col] / 100
+
+    df['Funding (%)'] = df[funding_col] * 100
+    df['APR (%)'] = df[funding_col] * (365 * 24 / interval_hours) * 100
+
+    days = st.number_input("📆 Select APR Timeframe (1-90 days)", min_value=1, max_value=90, value=30)
+    cutoff_time = df[time_col].max() - timedelta(days=days)
+    df_filtered = df[df[time_col] >= cutoff_time]
+
+    # --- Row count validator ---
+    expected_rows = int((24 / interval_hours) * days)
+    actual_rows = len(df_filtered)
+    if actual_rows < expected_rows:
+        st.warning(f"⚠️ Only {actual_rows} rows found in timeframe — expected ~{expected_rows}. Results may be less reliable.")
+
+    avg_funding_rate = df_filtered[funding_col].mean()
+    annualized_apr_clean = avg_funding_rate * 365 * 24 * 100
+    average_apr_legacy = df_filtered["APR (%)"].mean()
+
+    st.subheader(f"📌 APR Summary for Last {days} Days")
+    st.metric(label="📈 Website-Style APR (preferred)", value=f"{annualized_apr_clean:.2f}%", help="Based on average funding rate × 8760 × 100")
+    st.metric(label="🧮 Average of Interval APRs", value=f"{average_apr_legacy:.2f}%", help="Average of each row's APR (legacy method)")
+
+    # Plot APR chart
     st.subheader("📈 APR (%) Over Time")
-    st.line_chart(df_selected.set_index(time_col)['APR Interval (%)'])
+    st.line_chart(df_filtered.set_index(time_col)['APR (%)'])
 
-    # Visual indicator with spacing
-    st.subheader("🟩 APR Interval Visual Map")
-    import matplotlib.pyplot as plt
-    import matplotlib.patches as mpatches
-    import matplotlib.ticker as ticker
-
-    fig, ax = plt.subplots(figsize=(min(24, len(df_selected)), 1))
-    colors = []
-    for val in df_selected['APR Interval (%)']:
-        if val > 100:
-            colors.append("green")
-        elif val < -100:
-            colors.append("red")
-        elif abs(val) < 1:
-            colors.append("orange")
+    # Visual Squares with daily separator
+    st.subheader("🟦 APR Threshold Squares")
+    def apr_to_color(apr):
+        if apr > 100:
+            return "green"
+        elif apr < -100:
+            return "red"
+        elif apr < 1:
+            return "orange"
         else:
-            colors.append("blue")
+            return "blue"
 
-    for i, color in enumerate(colors):
-        ax.add_patch(mpatches.Rectangle((i + (i // (24//interval_hours)), 0), 1, 1, color=color))
+    colors = df_filtered['APR (%)'].apply(apr_to_color)
+    dates = df_filtered[time_col].dt.date.tolist()
+    square_html = ""
+    last_day = None
+    for color, day in zip(colors, dates):
+        if last_day is not None and day != last_day:
+            square_html += "<span style='display:inline-block;width:4px;height:10px;margin:1px;background:none;'>-</span>"
+        square_html += f"<span style='display:inline-block;width:10px;height:10px;margin:1px;background:{color};border-radius:2px;'></span>"
+        last_day = day
+    st.markdown(square_html, unsafe_allow_html=True)
 
-    ax.set_xlim(0, len(colors) + len(colors)//(24//interval_hours))
-    ax.set_ylim(0, 1)
-    ax.axis('off')
-    st.pyplot(fig)
+    st.subheader("💹 Funding Rate (%) Over Time")
+    st.line_chart(df_filtered.set_index(time_col)['Funding (%)'])
 
-    # Export APR breakdown
-    st.subheader("⬇️ Export APR Logic Breakdown")
-    df_selected_export = df_selected[[time_col, 'Funding Rate (%)', 'Funding Rate (decimal)', 'APR Interval (%)']].copy()
-    df_selected_export['Interval Hours'] = interval_hours
-    df_selected_export['Days Selected'] = num_days
-    df_selected_export['Cumulative Funding'] = df_selected['Funding Rate (decimal)'].cumsum()
-    df_selected_export['Website-Style APR'] = website_style_apr
-    df_selected_export['Average Interval APR'] = avg_interval_apr
+    st.subheader("📊 APR Per Funding Interval")
+    st.bar_chart(df_filtered.set_index(time_col)['APR (%)'])
 
-    csv = df_selected_export.to_csv(index=False).encode('utf-8')
-    st.download_button("📤 Download Full APR Logic CSV", csv, f"full_apr_logic_{num_days}d.csv", "text/csv")
+    # --- Export CSVs ---
+    output = io.BytesIO()
+    df.to_csv(output, index=False)
+    st.download_button(
+        label="📤 Download CSV with APR",
+        data=output.getvalue(),
+        file_name=f"{exchange.lower()}_with_apr.csv",
+        mime="text/csv"
+    )
+
+    # --- Logic snapshot CSV ---
+    logic_df = pd.DataFrame({
+        "Exchange": [exchange],
+        "Funding Interval (H)": [interval_hours],
+        "APR Timeframe (Days)": [days],
+        "Funding Format": [funding_format],
+        "Funding Rows Used": [actual_rows],
+        "Expected Rows": [expected_rows],
+        "Website-Style APR": [annualized_apr_clean],
+        "Legacy APR Avg": [average_apr_legacy],
+    })
+    logic_buf = io.BytesIO()
+    logic_df.to_csv(logic_buf, index=False)
+    st.download_button(
+        label="📄 Download APR Logic Summary",
+        data=logic_buf.getvalue(),
+        file_name=f"{exchange.lower()}_apr_logic_summary.csv",
+        mime="text/csv"
+    )
