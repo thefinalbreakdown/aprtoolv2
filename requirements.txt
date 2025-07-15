@@ -1,4 +1,0 @@
-streamlit
-pandas
-openpyxl
-plotly>=5.0.0
