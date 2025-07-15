@@ -114,4 +114,15 @@ if uploaded_file:
         data=output.getvalue(),
         file_name=f"{exchange.lower()}_with_apr.csv",
         mime="text/csv"
-    )
+    
+html_blocks = []
+for i in range(len(df_filtered)):
+    if i > 0 and df_filtered[time_col].iloc[i].date() != df_filtered[time_col].iloc[i - 1].date():
+        html_blocks.append("<span style='display:inline-block;width:6px;height:10px;margin:1px;background:transparent;'></span>")
+    color = apr_to_color(df_filtered["APR (%)"].iloc[i])
+    timestamp = df_filtered[time_col].iloc[i]
+    apr_value = df_filtered["APR (%)"].iloc[i]
+    html_blocks.append(f"<span title='{timestamp}: {apr_value:.2f}%' style='display:inline-block;width:10px;height:10px;margin:1px;background:{color};border-radius:2px;'></span>")
+
+square_html = "".join(html_blocks)
+)
